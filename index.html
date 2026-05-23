@@ -171,9 +171,143 @@
 
 <script>
 /**
- * --- JAVASCRIPT GAME LOGIC ---
- * Modular, Object-Oriented approach using ES6 Classes
+ * --- AUDIO SYSTEM (Web Audio API) ---
+ * Synthesizes sounds programmatically so no external files are needed.
  */
+class SoundManager {
+    constructor() {
+        this.ctx = null;
+        this.masterGain = null;
+        this.bgOscillators = [];
+        this.isMuted = false;
+    }
+
+    init() {
+        if (!this.ctx) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioContext();
+            this.masterGain = this.ctx.createGain();
+            this.masterGain.gain.value = 0.3; // Master volume
+            this.masterGain.connect(this.ctx.destination);
+            this.startBackgroundMusic();
+        } else if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    }
+
+    playTone(freq, type, duration, vol = 1) {
+        if (!this.ctx || this.isMuted) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+    }
+
+    playNoise(duration) {
+        if (!this.ctx || this.isMuted) return;
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        
+        // Lowpass filter for explosion sound
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 1000;
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.masterGain);
+        
+        noise.start();
+    }
+
+    // Specific Sound Effects
+    playSlice() {
+        // High pitch short swoosh
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.1);
+    }
+
+    playPop() {
+        // Fruit hit sound
+        this.playTone(600 + Math.random() * 200, 'sine', 0.15, 0.5);
+    }
+
+    playBomb() {
+        // Explosion
+        this.playNoise(0.5);
+        this.playTone(100, 'sawtooth', 0.5, 0.8);
+    }
+
+    playMiss() {
+        // Thud sound
+        this.playTone(150, 'triangle', 0.2, 0.3);
+    }
+
+    playCombo() {
+        this.playTone(1200, 'square', 0.1, 0.2);
+        setTimeout(() => this.playTone(1800, 'square', 0.2, 0.2), 100);
+    }
+
+    startBackgroundMusic() {
+        // Simple rhythmic loop
+        if (!this.ctx) return;
+        
+        const playBeat = (time) => {
+            if (!this.isRunning) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(150, time);
+            osc.frequency.exponentialRampToValueAtTime(40, time + 0.1);
+            gain.gain.setValueAtTime(0.1, time);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(time);
+            osc.stop(time + 0.1);
+            
+            // Schedule next beat (120 BPM approx)
+            this.nextBeatTime = time + 0.5;
+            requestAnimationFrame(() => {
+                 if(this.isRunning) playBeat(this.nextBeatTime);
+            });
+        };
+        
+        this.nextBeatTime = this.ctx.currentTime + 0.5;
+        playBeat(this.nextBeatTime);
+    }
+}
 
 // --- UTILITIES ---
 const randomRange = (min, max) => Math.random() * (max - min) + min;
@@ -186,11 +320,11 @@ const checkCollision = (circle1, circle2) => {
 
 // --- CONFIGURATION ---
 const CONFIG = {
-    gravity: 0.15,
+    gravity: 0.18,
     bladeColor: '#00ffff',
     bladeWidth: 8,
-    spawnRate: 60, // Frames between spawns (decreases over time)
-    bombChance: 0.15, // 15% chance to spawn a bomb
+    spawnRate: 50, 
+    bombChance: 0.15,
     colors: {
         apple: { main: '#e53935', inner: '#ffcdd2', leaf: '#4caf50' },
         orange: { main: '#fb8c00', inner: '#ffe0b2', leaf: '#4caf50' },
@@ -213,7 +347,7 @@ class Particle {
         this.vx = Math.cos(angle) * velocity;
         this.vy = Math.sin(angle) * velocity;
         this.gravity = 0.2;
-        this.life = 1.0; // Opacity/Life
+        this.life = 1.0;
         this.decay = randomRange(0.02, 0.04);
     }
 
@@ -240,9 +374,21 @@ class BladeTrail {
         this.points = [];
         this.active = false;
         this.maxLength = 10;
+        this.lastSoundTime = 0;
     }
 
     addPoint(x, y) {
+        const now = Date.now();
+        // Play slice sound only if moving fast enough and not spamming
+        if (this.points.length > 0 && now - this.lastSoundTime > 100) {
+            const lastP = this.points[this.points.length-1];
+            const dist = Math.hypot(x - lastP.x, y - lastP.y);
+            if (dist > 15) {
+                game.audio.playSlice();
+                this.lastSoundTime = now;
+            }
+        }
+
         this.points.push({ x, y, life: 1.0 });
         if (this.points.length > this.maxLength) {
             this.points.shift();
@@ -256,7 +402,6 @@ class BladeTrail {
     }
 
     update() {
-        // Fade out old points
         this.points.forEach(p => p.life -= 0.15);
         this.points = this.points.filter(p => p.life > 0);
         if (this.points.length === 0) this.active = false;
@@ -264,11 +409,9 @@ class BladeTrail {
 
     draw(ctx) {
         if (this.points.length < 2) return;
-
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
-        // Draw multiple lines for glow effect
         for (let i = 0; i < this.points.length - 1; i++) {
             const p1 = this.points[i];
             const p2 = this.points[i+1];
@@ -277,7 +420,6 @@ class BladeTrail {
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
             
-            // Gradient stroke
             const gradient = ctx.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
             gradient.addColorStop(0, `rgba(255, 255, 255, ${p1.life})`);
             gradient.addColorStop(1, `rgba(0, 255, 255, ${p2.life})`);
@@ -288,33 +430,39 @@ class BladeTrail {
             ctx.shadowColor = CONFIG.bladeColor;
             ctx.stroke();
         }
-        ctx.shadowBlur = 0; // Reset
+        ctx.shadowBlur = 0;
     }
 }
 
 class Fruit {
     constructor(canvasWidth, canvasHeight, type) {
         this.radius = randomRange(25, 35);
-        this.x = randomRange(this.radius, canvasWidth - this.radius);
+        
+        // Spawn Zones: Left, Center, Right
+        const zone = Math.floor(Math.random() * 3);
+        const zoneWidth = canvasWidth / 3;
+        const minX = zone * zoneWidth + 20;
+        const maxX = (zone + 1) * zoneWidth - 20;
+        
+        this.x = randomRange(minX, maxX);
         this.y = canvasHeight + this.radius;
         
-        // Physics: Throw upwards with slight horizontal variance
-        // Target peak height is roughly 1/3 to 2/3 of screen
-        const targetHeight = randomRange(canvasHeight * 0.3, canvasHeight * 0.6);
-        // Calculate initial velocity needed to reach targetHeight (v^2 = u^2 + 2as) -> u = sqrt(-2as)
+        // Physics
+        const targetHeight = randomRange(canvasHeight * 0.25, canvasHeight * 0.55);
         const vy = -Math.sqrt(2 * CONFIG.gravity * (targetHeight - this.y)); 
         
-        this.vx = randomRange(-3, 3); // Slight drift left or right
+        // Add horizontal velocity towards center slightly or random drift
+        const centerX = canvasWidth / 2;
+        const drift = (centerX - this.x) * 0.005; // Slight curve to center
+        this.vx = randomRange(-2, 2) + drift; 
         this.vy = vy;
         
         this.rotation = 0;
-        this.rotSpeed = randomRange(-0.1, 0.1);
+        this.rotSpeed = randomRange(-0.15, 0.15);
         
-        this.type = type; // 'apple', 'orange', 'lemon', 'watermelon', 'bomb'
+        this.type = type;
         this.sliced = false;
         this.markedForDeletion = false;
-        
-        // Visual config based on type
         this.config = CONFIG.colors[type] || CONFIG.colors.apple;
     }
 
@@ -324,9 +472,7 @@ class Fruit {
         this.vy += CONFIG.gravity;
         this.rotation += this.rotSpeed;
 
-        // Check if fell off screen
         if (this.y > window.innerHeight + this.radius && !this.sliced && this.type !== 'bomb') {
-            // Only count as missed if it was a fruit and we are in game state
             return 'missed';
         }
         return null;
@@ -349,21 +495,17 @@ class Fruit {
     drawFruitBody(ctx) {
         const { main, inner, leaf } = this.config;
 
-        // Main Body
         ctx.beginPath();
         ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = main;
         ctx.fill();
         
-        // Inner Flesh (slightly smaller circle)
         ctx.beginPath();
         ctx.arc(0, 0, this.radius * 0.85, 0, Math.PI * 2);
         ctx.fillStyle = inner;
         ctx.fill();
 
-        // Specific details
         if (this.type === 'watermelon') {
-            // Seeds
             ctx.fillStyle = '#000';
             for(let i=0; i<5; i++) {
                 ctx.beginPath();
@@ -371,7 +513,6 @@ class Fruit {
                 ctx.fill();
             }
         } else if (this.type === 'orange') {
-            // Segments
             ctx.strokeStyle = '#ffcc80';
             ctx.lineWidth = 1;
             for(let i=0; i<8; i++) {
@@ -382,7 +523,6 @@ class Fruit {
             }
         }
 
-        // Leaf
         ctx.fillStyle = leaf;
         ctx.beginPath();
         ctx.ellipse(0, -this.radius, 10, 20, Math.PI/4, 0, Math.PI*2);
@@ -390,19 +530,16 @@ class Fruit {
     }
 
     drawBomb(ctx) {
-        // Bomb Body
         ctx.beginPath();
         ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = '#111';
         ctx.fill();
         
-        // Shine
         ctx.beginPath();
         ctx.arc(-10, -10, 5, 0, Math.PI * 2);
         ctx.fillStyle = '#333';
         ctx.fill();
 
-        // Fuse
         ctx.strokeStyle = '#8d6e63';
         ctx.lineWidth = 4;
         ctx.beginPath();
@@ -410,13 +547,11 @@ class Fruit {
         ctx.quadraticCurveTo(10, -this.radius - 10, 15, -this.radius - 5);
         ctx.stroke();
 
-        // Spark
         ctx.fillStyle = '#ff5722';
         ctx.beginPath();
         ctx.arc(15, -this.radius - 5, 4 + Math.random()*2, 0, Math.PI*2);
         ctx.fill();
         
-        // Skull icon (simplified)
         ctx.fillStyle = '#ddd';
         ctx.font = '20px Arial';
         ctx.textAlign = 'center';
@@ -451,13 +586,11 @@ class SlicedFruit {
         ctx.translate(this.x, this.y);
         ctx.globalAlpha = this.life;
 
-        // Draw Half 1
         ctx.save();
         ctx.rotate(this.half1.rot);
         this.drawHalf(ctx, -1);
         ctx.restore();
 
-        // Draw Half 2
         ctx.save();
         ctx.rotate(this.half2.rot);
         this.drawHalf(ctx, 1);
@@ -517,21 +650,19 @@ class Game {
         this.frameCount = 0;
         this.comboCount = 0;
         this.lastSliceTime = 0;
+        
+        this.audio = new SoundManager();
 
-        // Input Handling
         this.setupInputs();
         
-        // Resize Handler
         window.addEventListener('resize', () => {
             this.width = this.canvas.width = window.innerWidth;
             this.height = this.canvas.height = window.innerHeight;
         });
 
-        // Button Listeners
         document.getElementById('start-btn').addEventListener('click', () => this.start());
         document.getElementById('restart-btn').addEventListener('click', () => this.start());
 
-        // Initial Render
         this.drawBackground();
     }
 
@@ -544,14 +675,12 @@ class Game {
 
         const handleEnd = () => {
             this.blade.reset();
-            this.comboCount = 0; // Reset combo on lift
+            this.comboCount = 0;
         };
 
-        // Mouse
         this.canvas.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
         this.canvas.addEventListener('mouseup', handleEnd);
         
-        // Touch
         this.canvas.addEventListener('touchmove', e => {
             e.preventDefault();
             const touch = e.touches[0];
@@ -561,6 +690,10 @@ class Game {
     }
 
     start() {
+        // Initialize Audio Context on user interaction
+        this.audio.init();
+        this.audio.isRunning = true;
+
         this.score = 0;
         this.lives = 3;
         this.fruits = [];
@@ -568,6 +701,11 @@ class Game {
         this.slicedFruits = [];
         this.isRunning = true;
         this.frameCount = 0;
+        
+        // Force resize fix
+        this.width = this.canvas.width = window.innerWidth;
+        this.height = this.canvas.height = window.innerHeight;
+        this.ctx.clearRect(0, 0, this.width, this.height);
         
         this.updateUI();
         this.startScreen.classList.add('hidden');
@@ -578,6 +716,7 @@ class Game {
 
     gameOver() {
         this.isRunning = false;
+        this.audio.isRunning = false;
         this.uiFinalScore.innerText = this.score;
         this.gameOverScreen.classList.remove('hidden');
     }
@@ -614,38 +753,35 @@ class Game {
 
     checkCollisions(mouseX, mouseY) {
         const now = Date.now();
-        // Prevent multiple hits in same swipe frame for same fruit logic handled by 'sliced' flag
         
         for (let i = this.fruits.length - 1; i >= 0; i--) {
             const fruit = this.fruits[i];
             if (fruit.sliced) continue;
 
-            // Simple circle collision for the blade tip
             if (checkCollision({x: mouseX, y: mouseY, radius: 10}, fruit)) {
                 
                 if (fruit.type === 'bomb') {
                     this.createExplosion(fruit.x, fruit.y, '#fff', 50);
+                    this.audio.playBomb();
                     this.gameOver();
                     return;
                 }
 
-                // Slice Logic
                 fruit.sliced = true;
                 this.fruits.splice(i, 1);
                 this.slicedFruits.push(new SlicedFruit(fruit));
                 
-                // Juice Particles
                 this.createExplosion(fruit.x, fruit.y, fruit.config.main);
+                this.audio.playPop();
 
-                // Score & Combo
                 this.score++;
                 this.comboCount++;
                 
-                // Combo Bonus Logic
-                if (now - this.lastSliceTime < 300) { // Within 300ms
+                if (now - this.lastSliceTime < 300) {
                     if (this.comboCount >= 3) {
-                        this.score += 2; // Bonus points
+                        this.score += 2;
                         this.showComboText(fruit.x, fruit.y, "FRENZY!");
+                        this.audio.playCombo();
                     }
                 } else {
                     this.comboCount = 1;
@@ -667,25 +803,22 @@ class Game {
     update() {
         this.frameCount++;
 
-        // Spawning Logic
-        // Spawn rate increases (interval decreases) as score goes up
         const currentSpawnRate = Math.max(20, CONFIG.spawnRate - Math.floor(this.score / 5));
         if (this.frameCount % currentSpawnRate === 0) {
             this.spawnFruit();
         }
 
-        // Update Fruits
         for (let i = this.fruits.length - 1; i >= 0; i--) {
             const status = this.fruits[i].update();
             if (status === 'missed') {
                 this.lives--;
                 this.updateUI();
+                this.audio.playMiss();
                 this.fruits.splice(i, 1);
                 if (this.lives <= 0) this.gameOver();
             }
         }
 
-        // Update Sliced Fruits (Visual only)
         for (let i = this.slicedFruits.length - 1; i >= 0; i--) {
             this.slicedFruits[i].update();
             if (this.slicedFruits[i].life <= 0) {
@@ -693,7 +826,6 @@ class Game {
             }
         }
 
-        // Update Particles
         for (let i = this.particles.length - 1; i >= 0; i--) {
             this.particles[i].update();
             if (this.particles[i].life <= 0) {
@@ -705,16 +837,11 @@ class Game {
     }
 
     drawBackground() {
-        // Clear with transparency to allow CSS background to show, 
-        // or fill with semi-transparent black for trail effects if desired.
-        // Here we clear completely.
         this.ctx.clearRect(0, 0, this.width, this.height);
     }
 
     draw() {
         this.drawBackground();
-
-        // Draw Entities
         this.fruits.forEach(f => f.draw(this.ctx));
         this.slicedFruits.forEach(f => f.draw(this.ctx));
         this.particles.forEach(p => p.draw(this.ctx));
@@ -729,7 +856,6 @@ class Game {
     }
 }
 
-// Initialize Game when DOM is ready
 window.onload = () => {
     const game = new Game();
 };
