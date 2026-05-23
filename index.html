@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Фруктовый Ниндзя</title>
+    <title>Fruit Ninja Simple</title>
     <style>
         body { margin: 0; overflow: hidden; background: #222; font-family: sans-serif; touch-action: none; }
         canvas { display: block; width: 100vw; height: 100vh; }
         
         /* Интерфейс */
-        #ui { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; pointer-events: none; text-shadow: 2px 2px 0 #000; }
-        #lives { position: absolute; top: 20px; right: 20px; color: red; font-size: 30px; pointer-events: none; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #lives { color: #ff4444; }
         
         /* Экраны меню */
         .screen {
@@ -19,53 +19,81 @@
             justify-content: center; align-items: center; color: white; z-index: 10;
         }
         .hidden { display: none !important; }
-        h1 { font-size: 60px; margin: 0 0 20px; color: #ffeb3b; text-shadow: 0 0 20px orange; }
+        h1 { font-size: 60px; margin: 0 0 20px; color: #ffeb3b; text-transform: uppercase; }
         button {
-            padding: 20px 50px; font-size: 30px; background: #4caf50; color: white;
-            border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            padding: 15px 40px; font-size: 24px; background: #4caf50; color: white;
+            border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 5px 0 #2e7d32;
         }
-        button:hover { background: #66bb6a; transform: scale(1.05); }
-        button:active { transform: scale(0.95); }
+        button:active { transform: translateY(5px); box-shadow: none; }
+        
+        /* Текст комбо */
+        .combo-text {
+            position: absolute; color: #00ffff; font-weight: 900; font-size: 40px;
+            text-shadow: 0 0 10px #00ffff; pointer-events: none; animation: floatUp 0.8s forwards;
+        }
+        @keyframes floatUp { to { transform: translateY(-50px) scale(1.5); opacity: 0; } }
     </style>
 </head>
 <body>
 
-    <canvas id="game"></canvas>
-    
-    <div id="ui">Счет: <span id="scoreVal">0</span></div>
-    <div id="lives">❤❤❤</div>
+<canvas id="game"></canvas>
 
-    <!-- Стартовый экран -->
-    <div id="startScreen" class="screen">
-        <h1>ФРУКТОВЫЙ НИДЗЯ</h1>
-        <button id="btnStart">ИГРАТЬ</button>
-    </div>
+<div id="ui">
+    Счет: <span id="score">0</span> | Жизни: <span id="lives">❤❤❤</span>
+</div>
 
-    <!-- Экран проигрыша -->
-    <div id="gameOverScreen" class="screen hidden">
-        <h1>ИГРА ОКОНЧЕНА</h1>
-        <p style="font-size: 30px">Счет: <span id="finalScore">0</span></p>
-        <button id="btnRestart">ЕЩЁ РАЗ</button>
-    </div>
+<div id="start-screen" class="screen">
+    <h1>FRUIT SLICE</h1>
+    <button id="btn-start">ИГРАТЬ</button>
+</div>
+
+<div id="game-over-screen" class="screen hidden">
+    <h1>GAME OVER</h1>
+    <p style="font-size: 24px">Счет: <span id="final-score">0</span></p>
+    <button id="btn-restart">ЕЩЁ РАЗ</button>
+</div>
 
 <script>
-// --- НАСТРОЙКИ И ПЕРЕМЕННЫЕ ---
+/** 
+ * ПРОСТОЙ ДВИЖОК ИГРЫ 
+ * Без классов, чистая функциональность для стабильности
+ */
+
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-let W, H;
+let width, height;
+
+// Настройки
+const GRAVITY = 0.2;
+const BLADE_COLOR = '#00ffff';
+const FRUITS_TYPES = [
+    { color: '#e53935', inner: '#ffcdd2', score: 1 }, // Яблоко
+    { color: '#fb8c00', inner: '#ffe0b2', score: 2 }, // Апельсин
+    { color: '#fdd835', inner: '#fff9c4', score: 3 }, // Лимон
+    { color: '#8bc34a', inner: '#dcedc8', score: 5 }  // Лайм
+];
 
 // Состояние игры
-let gameRunning = false;
-let score = 0;
-let lives = 3;
-let fruits = [];
-let particles = [];
-let blade = [];
-let lastTime = 0;
-let spawnTimer = 0;
+let state = {
+    running: false,
+    score: 0,
+    lives: 3,
+    fruits: [],
+    particles: [],
+    blade: [],
+    combo: 0,
+    lastSliceTime: 0
+};
 
-// Аудио контекст (создается при первом клике)
-let audioCtx = null;
+// Аудио контекст (инициализируется при клике)
+let audioCtx;
+
+function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
 
 // --- ЗВУКИ (Синтезатор) ---
 function playSound(type) {
@@ -78,8 +106,8 @@ function playSound(type) {
     const now = audioCtx.currentTime;
     
     if (type === 'slice') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(800, now);
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(400 + Math.random()*200, now);
         osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
         gain.gain.setValueAtTime(0.3, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
@@ -95,7 +123,7 @@ function playSound(type) {
         osc.stop(now + 0.5);
     } else if (type === 'miss') {
         osc.type = 'square';
-        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.setValueAtTime(150, now);
         osc.frequency.linearRampToValueAtTime(100, now + 0.2);
         gain.gain.setValueAtTime(0.2, now);
         gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
@@ -104,291 +132,295 @@ function playSound(type) {
     }
 }
 
-// --- КЛАССЫ ОБЪЕКТОВ ---
+// --- ЛОГИКА ---
 
-class Fruit {
-    constructor() {
-        this.r = 30 + Math.random() * 20; // Радиус
-        this.x = Math.random() * (W - 100) + 50; // Случайная позиция по X
-        this.y = H + this.r; // Старт снизу за экраном
-        
-        // Физика полета
-        const angle = -Math.PI / 2 + (Math.random() * 0.4 - 0.2); // Вверх с небольшим отклонением
-        const speed = 12 + Math.random() * 6;
-        this.vx = Math.cos(angle) * speed;
-        this.vy = Math.sin(angle) * speed;
-        this.gravity = 0.25;
-        
-        this.rot = 0;
-        this.rotSpeed = (Math.random() - 0.5) * 0.2;
-        
-        // Тип фрукта
-        const types = ['apple', 'orange', 'watermelon'];
-        this.type = types[Math.floor(Math.random() * types.length)];
-        
-        // Шанс бомбы (15%)
-        if (Math.random() < 0.15) this.type = 'bomb';
-        
-        this.active = true;
-        this.sliced = false;
+function spawnFruit() {
+    if (!state.running) return;
+    
+    const type = FRUITS_TYPES[Math.floor(Math.random() * FRUITS_TYPES.length)];
+    const isBomb = Math.random() < 0.15; // 15% шанс бомбы
+    
+    // Спавн снизу в случайной точке по X
+    const startX = Math.random() * (width - 100) + 50;
+    const startY = height + 50;
+    
+    // Целевая точка где-то в верхней трети экрана
+    const targetX = Math.random() * width;
+    const targetY = Math.random() * (height * 0.4) + 50;
+    
+    // Расчет скорости для попадания в цель
+    const timeToPeak = 60; // кадров до вершины
+    const vx = (targetX - startX) / timeToPeak;
+    const vy = (targetY - startY) / timeToPeak - (GRAVITY * timeToPeak) / 2;
+
+    state.fruits.push({
+        x: startX, y: startY,
+        vx: vx, vy: vy,
+        radius: 30 + Math.random() * 10,
+        rotation: 0,
+        rotSpeed: (Math.random() - 0.5) * 0.2,
+        type: isBomb ? 'bomb' : type,
+        active: true
+    });
+}
+
+function createParticles(x, y, color) {
+    for(let i=0; i<15; i++) {
+        state.particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * 10,
+            vy: (Math.random() - 0.5) * 10,
+            life: 1.0,
+            color: color
+        });
     }
+}
 
-    update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.vy += this.gravity;
-        this.rot += this.rotSpeed;
+function showComboText(x, y, text) {
+    const el = document.createElement('div');
+    el.className = 'combo-text';
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.innerText = text;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+}
 
-        // Если упал вниз
-        if (this.y > H + 50 && !this.sliced) {
-            this.active = false;
-            if (this.type !== 'bomb') {
-                loseLife();
+function update() {
+    if (!state.running) return;
+
+    // Спавн
+    if (Math.random() < 0.03) spawnFruit();
+
+    // Обновление фруктов
+    for (let i = state.fruits.length - 1; i >= 0; i--) {
+        let f = state.fruits[i];
+        f.x += f.vx;
+        f.y += f.vy;
+        f.vy += GRAVITY;
+        f.rotation += f.rotSpeed;
+
+        // Упал вниз
+        if (f.y > height + 50 && f.active) {
+            if (f.type !== 'bomb') {
+                state.lives--;
+                playSound('miss');
+                updateUI();
+                if (state.lives <= 0) gameOver();
             }
+            state.fruits.splice(i, 1);
+            state.combo = 0; // Сброс комбо при промахе
         }
     }
 
-    draw() {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.rotate(this.rot);
+    // Обновление частиц
+    for (let i = state.particles.length - 1; i >= 0; i--) {
+        let p = state.particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += GRAVITY;
+        p.life -= 0.03;
+        if (p.life <= 0) state.particles.splice(i, 1);
+    }
+
+    // Лезвие (исчезает)
+    if (state.blade.length > 0) {
+        state.blade[0].life -= 0.1;
+        if (state.blade[0].life <= 0) state.blade.shift();
+    }
+}
+
+function checkSlice(x, y) {
+    if (!state.running) return;
+
+    // Добавляем точку лезвия
+    state.blade.unshift({ x, y, life: 1.0 });
+    if (state.blade.length > 8) state.blade.pop();
+
+    let hitCount = 0;
+
+    for (let i = state.fruits.length - 1; i >= 0; i--) {
+        let f = state.fruits[i];
+        if (!f.active) continue;
+
+        const dx = f.x - x;
+        const dy = f.y - y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist < f.radius) {
+            // ПОПАДАНИЕ
+            if (f.type === 'bomb') {
+                playSound('bomb');
+                createParticles(f.x, f.y, '#fff', 50);
+                gameOver();
+                return;
+            }
+
+            // Разрез фрукта
+            f.active = false;
+            state.fruits.splice(i, 1);
+            
+            createParticles(f.x, f.y, f.type.color);
+            playSound('slice');
+            
+            hitCount++;
+        }
+    }
+
+    if (hitCount > 0) {
+        state.combo += hitCount;
+        const now = Date.now();
         
-        if (this.type === 'bomb') {
-            // Рисуем бомбу
-            ctx.fillStyle = '#000';
-            ctx.beginPath(); ctx.arc(0, 0, this.r, 0, Math.PI*2); ctx.fill();
-            // Фитиль
-            ctx.strokeStyle = '#8d6e63'; ctx.lineWidth = 4;
-            ctx.beginPath(); ctx.moveTo(0, -this.r); ctx.lineTo(10, -this.r-10); ctx.stroke();
-            // Искра
-            ctx.fillStyle = 'red';
-            ctx.beginPath(); ctx.arc(10, -this.r-10, 4+Math.random()*3, 0, Math.PI*2); ctx.fill();
-            // Череп
-            ctx.fillStyle = '#fff'; ctx.font = '20px Arial'; ctx.fillText('☠️', -10, 5);
+        // Логика комбо: если удары быстрые
+        if (now - state.lastSliceTime < 300) {
+            if (state.combo >= 3) {
+                const bonus = state.combo * 10;
+                state.score += bonus;
+                let msg = "COMBO!";
+                if (state.combo > 5) msg = "FRENZY!";
+                if (state.combo > 10) msg = "INSANE!";
+                showComboText(x, y, msg + " +" + bonus);
+            } else {
+                state.score += hitCount * state.combo;
+            }
         } else {
-            // Рисуем фрукты
-            if (this.type === 'apple') ctx.fillStyle = '#e53935';
-            if (this.type === 'orange') ctx.fillStyle = '#fb8c00';
-            if (this.type === 'watermelon') ctx.fillStyle = '#2e7d32';
-            
-            ctx.beginPath();
-            ctx.arc(0, 0, this.r, 0, Math.PI*2);
-            ctx.fill();
-            
-            // Блик
-            ctx.fillStyle = 'rgba(255,255,255,0.3)';
-            ctx.beginPath(); ctx.arc(-10, -10, this.r/3, 0, Math.PI*2); ctx.fill();
+            state.combo = hitCount;
+            state.score += hitCount;
         }
         
-        ctx.restore();
+        state.lastSliceTime = now;
+        updateUI();
     }
-}
-
-class Particle {
-    constructor(x, y, color) {
-        this.x = x; this.y = y;
-        this.color = color;
-        const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 5 + 2;
-        this.vx = Math.cos(angle) * speed;
-        this.vy = Math.sin(angle) * speed;
-        this.life = 1.0;
-        this.decay = 0.02 + Math.random() * 0.03;
-    }
-    update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.vy += 0.1; // Гравитация частиц
-        this.life -= this.decay;
-    }
-    draw() {
-        ctx.globalAlpha = this.life;
-        ctx.fillStyle = this.color;
-        ctx.beginPath(); ctx.arc(this.x, this.y, 4, 0, Math.PI*2); ctx.fill();
-        ctx.globalAlpha = 1.0;
-    }
-}
-
-// --- ЛОГИКА ИГРЫ ---
-
-function init() {
-    resize();
-    window.addEventListener('resize', resize);
-    
-    // Обработчики кнопок
-    document.getElementById('btnStart').addEventListener('click', startGame);
-    document.getElementById('btnRestart').addEventListener('click', startGame);
-    
-    // Обработчики мыши/тача
-    canvas.addEventListener('mousedown', startSlice);
-    canvas.addEventListener('mousemove', moveSlice);
-    canvas.addEventListener('mouseup', endSlice);
-    canvas.addEventListener('touchstart', (e) => startSlice(e.touches[0]));
-    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); moveSlice(e.touches[0]); });
-    canvas.addEventListener('touchend', endSlice);
-    
-    requestAnimationFrame(loop);
-}
-
-function resize() {
-    W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-}
-
-function startGame() {
-    // Инициализация аудио при первом клике
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    
-    score = 0;
-    lives = 3;
-    fruits = [];
-    particles = [];
-    blade = [];
-    gameRunning = true;
-    spawnTimer = 0;
-    
-    updateUI();
-    document.getElementById('startScreen').classList.add('hidden');
-    document.getElementById('gameOverScreen').classList.add('hidden');
-}
-
-function gameOver() {
-    gameRunning = false;
-    document.getElementById('finalScore').innerText = score;
-    document.getElementById('gameOverScreen').classList.remove('hidden');
-    playSound('bomb');
-}
-
-function loseLife() {
-    lives--;
-    playSound('miss');
-    updateUI();
-    if (lives <= 0) gameOver();
 }
 
 function updateUI() {
-    document.getElementById('scoreVal').innerText = score;
-    let hearts = '';
-    for(let i=0; i<lives; i++) hearts += '❤';
+    document.getElementById('score').innerText = state.score;
+    let hearts = "";
+    for(let i=0; i<state.lives; i++) hearts += "❤";
     document.getElementById('lives').innerText = hearts;
 }
 
-// Управление лезвием
-let isSlicing = false;
-function startSlice(e) {
-    if (!gameRunning) return;
-    isSlicing = true;
-    blade = [{x: e.clientX, y: e.clientY}];
-}
-function moveSlice(e) {
-    if (!isSlicing || !gameRunning) return;
-    const x = e.clientX, y = e.clientY;
-    blade.push({x, y});
-    if (blade.length > 8) blade.shift(); // Хвост лезвия
-    
-    checkCollisions(x, y);
-}
-function endSlice() {
-    isSlicing = false;
-    blade = [];
-}
+function draw() {
+    ctx.clearRect(0, 0, width, height);
 
-function checkCollisions(mx, my) {
-    for (let i = fruits.length - 1; i >= 0; i--) {
-        const f = fruits[i];
-        if (f.sliced) continue;
+    // Фрукты
+    state.fruits.forEach(f => {
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.rotate(f.rotation);
         
-        const dx = f.x - mx;
-        const dy = f.y - my;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        
-        if (dist < f.r + 10) {
-            sliceFruit(f, i);
+        if (f.type === 'bomb') {
+            ctx.beginPath();
+            ctx.arc(0, 0, f.radius, 0, Math.PI*2);
+            ctx.fillStyle = '#000';
+            ctx.fill();
+            ctx.fillStyle = 'red';
+            ctx.font = '20px Arial';
+            ctx.fillText('☠️', -10, 5);
+        } else {
+            // Тело
+            ctx.beginPath();
+            ctx.arc(0, 0, f.radius, 0, Math.PI*2);
+            ctx.fillStyle = f.type.color;
+            ctx.fill();
+            // Внутренность
+            ctx.beginPath();
+            ctx.arc(0, 0, f.radius * 0.8, 0, Math.PI*2);
+            ctx.fillStyle = f.type.inner;
+            ctx.fill();
         }
-    }
-}
+        ctx.restore();
+    });
 
-function sliceFruit(f, index) {
-    if (f.type === 'bomb') {
-        createExplosion(f.x, f.y, '#fff', 50);
-        gameOver();
-        return;
-    }
-    
-    f.sliced = true;
-    f.active = false;
-    score++;
-    playSound('slice');
-    
-    // Эффекты
-    let color = '#e53935';
-    if (f.type === 'orange') color = '#fb8c00';
-    if (f.type === 'watermelon') color = '#ef5350';
-    createExplosion(f.x, f.y, color, 15);
-    
-    updateUI();
-}
-
-function createExplosion(x, y, color, count) {
-    for(let i=0; i<count; i++) {
-        particles.push(new Particle(x, y, color));
-    }
-}
-
-// --- ГЛАВНЫЙ ЦИКЛ ---
-function loop(timestamp) {
-    const dt = timestamp - lastTime;
-    lastTime = timestamp;
-    
-    // Очистка
-    ctx.clearRect(0, 0, W, H);
-    
-    if (gameRunning) {
-        // Спавн фруктов
-        spawnTimer++;
-        if (spawnTimer > 40) { // Каждые ~40 кадров (0.6 сек)
-            fruits.push(new Fruit());
-            spawnTimer = 0;
-        }
-        
-        // Обновление фруктов
-        fruits.forEach(f => f.update());
-        fruits = fruits.filter(f => f.active);
-        
-        // Отрисовка фруктов
-        fruits.forEach(f => f.draw());
-    }
-    
-    // Частицы (всегда обновляются, даже при Game Over для красоты)
-    particles.forEach(p => p.update());
-    particles = particles.filter(p => p.life > 0);
-    particles.forEach(p => p.draw());
-    
-    // Лезвие
-    if (blade.length > 1) {
+    // Частицы
+    state.particles.forEach(p => {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.moveTo(blade[0].x, blade[0].y);
-        for (let i = 1; i < blade.length; i++) {
-            // Кривая Безье для плавности
-            // ctx.lineTo(blade[i].x, blade[i].y); 
-            // Простая линия быстрее и надежнее для высокой частоты
-             ctx.lineTo(blade[i].x, blade[i].y);
+        ctx.arc(p.x, p.y, 5, 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    });
+
+    // Лезвие
+    if (state.blade.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(state.blade[0].x, state.blade[0].y);
+        for (let i = 1; i < state.blade.length; i++) {
+            ctx.lineTo(state.blade[i].x, state.blade[i].y);
         }
-        ctx.strokeStyle = '#0ff';
+        ctx.strokeStyle = BLADE_COLOR;
         ctx.lineWidth = 8;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.shadowBlur = 10;
-        ctx.shadowColor = '#0ff';
+        ctx.shadowColor = BLADE_COLOR;
         ctx.stroke();
         ctx.shadowBlur = 0;
     }
-    
+}
+
+function loop() {
+    update();
+    draw();
     requestAnimationFrame(loop);
 }
 
-// Запуск
-init();
+// --- УПРАВЛЕНИЕ ИГРОЙ ---
+
+function initAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function startGame() {
+    initAudio();
+    state = {
+        running: true,
+        score: 0,
+        lives: 3,
+        fruits: [],
+        particles: [],
+        blade: [],
+        combo: 0,
+        lastSliceTime: 0
+    };
+    updateUI();
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('game-over-screen').classList.add('hidden');
+}
+
+function gameOver() {
+    state.running = false;
+    document.getElementById('final-score').innerText = state.score;
+    document.getElementById('game-over-screen').classList.remove('hidden');
+}
+
+// Обработчики событий
+document.getElementById('btn-start').addEventListener('click', startGame);
+document.getElementById('btn-restart').addEventListener('click', startGame);
+
+// Мышь и Тач
+function handleInput(e) {
+    e.preventDefault();
+    let x, y;
+    if (e.touches) {
+        x = e.touches[0].clientX;
+        y = e.touches[0].clientY;
+    } else {
+        x = e.clientX;
+        y = e.clientY;
+    }
+    checkSlice(x, y);
+}
+
+canvas.addEventListener('mousemove', handleInput);
+canvas.addEventListener('touchmove', handleInput, {passive: false});
+canvas.addEventListener('mousedown', () => state.blade = []); // Сброс хвоста при нажатии
+canvas.addEventListener('touchstart', () => state.blade = [], {passive: false});
+
+// Запуск цикла отрисовки (меню тоже рисуется фоном)
+loop();
 
 </script>
 </body>
